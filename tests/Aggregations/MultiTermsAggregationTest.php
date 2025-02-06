@@ -2,45 +2,117 @@
 
 namespace Spatie\ElasticsearchQueryBuilder\Tests\Aggregations;
 
-use Elastic\Elasticsearch\Client;
-use Elastic\Elasticsearch\ClientBuilder;
-use Spatie\ElasticsearchQueryBuilder\Aggregations\MultiTermsAggregation;
 use PHPUnit\Framework\TestCase;
-use Spatie\ElasticsearchQueryBuilder\Builder;
+use Spatie\ElasticsearchQueryBuilder\Aggregations\MultiTermsAggregation;
+use Spatie\ElasticsearchQueryBuilder\Aggregations\SumAggregation;
+use Spatie\ElasticsearchQueryBuilder\Sorts\Sorting;
+use Spatie\ElasticsearchQueryBuilder\Sorts\TermsSort;
 
 class MultiTermsAggregationTest extends TestCase
 {
-    private Client $client;
-
-    protected function setUp(): void
+    public function testCreateReturnsNewInstance(): void
     {
-        $this->client = ClientBuilder::create()->build();
+        $aggregation = MultiTermsAggregation::create('agg_name', ['field1', 'field2']);
+        self::assertInstanceOf(MultiTermsAggregation::class, $aggregation);
     }
 
     public function testMultiTermsAggregation(): void
     {
-        $builder = new Builder($this->client);
+        $aggregation = (new MultiTermsAggregation('agg_name', ['field1', 'field2']));
 
-        $aggregation = MultiTermsAggregation::create('agg_name', ['field1', 'field2']);
-
-        $expectedAggArray = [
+        self::assertEquals([
             'multi_terms' => [
                 'terms' => [
                     ['field' => 'field1'],
-                    ['field' => 'field2']
+                    ['field' => 'field2'],
                 ],
             ],
-        ];
-        $this->assertEquals($expectedAggArray, $aggregation->toArray());
+        ], $aggregation->toArray());
+    }
 
-        $builder->addAggregation($aggregation);
+    public function testMultiTermsAggregationWithOrder(): void
+    {
+        $aggregation = (new MultiTermsAggregation('agg_name', ['field1', 'field2']))
+            ->addSort(TermsSort::create('_key', 'asc'));
 
-        $expectedBuilderPayload = [
-            'aggs' => [
-                'agg_name' => $expectedAggArray,
+        self::assertEquals([
+            'multi_terms' => [
+                'terms' => [
+                    ['field' => 'field1'],
+                    ['field' => 'field2'],
+                ],
+                'order' => [
+                    ['_key' => 'asc'],
+                ],
+            ],
+        ], $aggregation->toArray());
+    }
+
+    public function testMultiTermsAggregationOrderedViaCreate(): void
+    {
+        $multiTermsAgg = MultiTermsAggregation::create(
+            'category_subcategory',
+            ['category', 'subcategory'],
+            10,
+            [
+                TermsSort::create('total_quantity'),
+                TermsSort::create('_key', Sorting::ASC),
             ]
-        ];
+        )->aggregation(
+            SumAggregation::create('total_quantity', 'quantity')
+        );
 
-        $this->assertEquals($expectedBuilderPayload, $builder->getPayload());
+        self::assertEquals([
+            'multi_terms' => [
+                'terms' => [
+                    ['field' => 'category'],
+                    ['field' => 'subcategory'],
+                ],
+                'size' => 10,
+                'order' => [
+                    ['total_quantity' => 'desc'],
+                    ['_key' => 'asc'],
+                ],
+            ],
+            'aggs' => [
+                'total_quantity' => [
+                    'sum' => [
+                        'field' => 'quantity',
+                    ],
+                ],
+            ],
+        ], $multiTermsAgg->payload());
+    }
+
+    public function testMultiTermsAggregationOrderedViaFluent(): void
+    {
+        $multiTermsAgg = MultiTermsAggregation::create('category_subcategory', ['category', 'subcategory'])
+            ->size(10)
+            ->addSort(TermsSort::create('total_quantity'))
+            ->addSort(TermsSort::create('_key', Sorting::ASC))
+            ->aggregation(
+                SumAggregation::create('total_quantity', 'quantity')
+            );
+
+        self::assertEquals([
+            'multi_terms' => [
+                'terms' => [
+                    ['field' => 'category'],
+                    ['field' => 'subcategory'],
+                ],
+                'size' => 10,
+                'order' => [
+                    ['total_quantity' => 'desc'],
+                    ['_key' => 'asc'],
+                ],
+            ],
+            'aggs' => [
+                'total_quantity' => [
+                    'sum' => [
+                        'field' => 'quantity',
+                    ],
+                ],
+            ],
+        ], $multiTermsAgg->payload());
     }
 }
